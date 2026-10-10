@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function adminUid() {
+      return get(/databases/$(database)/documents/config/app).data.adminUid;
+    }
+    function istniejeAdmin() {
+      return exists(/databases/$(database)/documents/config/app)
+        && adminUid() != '';
+    }
+    function jestAdmin() {
+      return request.auth != null && istniejeAdmin() && request.auth.uid == adminUid();
+    }
+
+    // Dokument konfiguracyjny: adminUid.
+    // Czyta każdy. Rolę administratora może przejąć PIERWSZY zalogowany użytkownik,
+    // gdy stanowisko jest wolne. Później zmienić może tylko sam administrator.
+    match /config/app {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.adminUid == request.auth.uid;
+      allow update: if request.auth != null && (
+           (resource.data.adminUid == '' && request.resource.data.adminUid == request.auth.uid)
+        || request.auth.uid == resource.data.adminUid
+      );
+      allow delete: if false;
+    }
+
+    // Treści partii: czyta każdy (strona publiczna), zapisuje tylko administrator.
+    match /aktualnosci/{id} { allow read: if true; allow write: if jestAdmin(); }
+    match /wladze/{id}      { allow read: if true; allow write: if jestAdmin(); }
+    match /projekty/{id}    { allow read: if true; allow write: if jestAdmin(); }
+
+    // Wszystko inne zablokowane.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
